@@ -2,6 +2,8 @@
 
 This repository demonstrates a multimodal LSTM model that processes video (frames) + audio (mel-spectrograms) to generate Twitch chat comments.
 
+## Model Operation
+
 Our multimodal LSTM model processes video frames and audio spectrograms to generate textual comments. Specifically, we use two specialized LSTM encoders—one for video and one for audio. First, we flatten each batch of video frames (after extracting and resizing them) into a shape suitable for an LSTM input, then pass them through the VideoEncoder. Meanwhile, the raw audio waveform is transformed into a Mel-Spectrogram and fed into the AudioEncoder, which also uses an LSTM to capture temporal features from the spectrogram frames. Each encoder outputs a hidden state representing the learned context of its respective modality. These two hidden states are concatenated and passed through a fusion layer to form the initial hidden and cell states of the CommentDecoder. In turn, the decoder—another LSTM—generates output tokens one step at a time, ultimately producing a chat comment. This decoder can be run with various decoding strategies (greedy or sampling) to yield natural text responses. The presence of <SOS> and <EOS> tokens helps the model learn clear start and end boundaries for each generated comment, improving coherence and stopping behavior.
 
 ## File Structure
@@ -46,4 +48,10 @@ Our multimodal LSTM model processes video frames and audio spectrograms to gener
 - We added `<SOS>` at the start and `<EOS>` at the end of each comment.  
 - We introduced top-k sampling with temperature in `generate_comment`.  
 - We reorganized code into separate modules for clarity and easier maintenance.
+
+## Links to data
+
+- Model trained for 100 epochs: https://www.kaggle.com/datasets/mazikil/twitch-model-4
+- Precomputed video and audio data: https://www.kaggle.com/datasets/mazikil/precompute-data-gai
+- Data of 28 minutes stream (video, audio, chat): https://www.kaggle.com/datasets/mazikil/dorozeadata
 
