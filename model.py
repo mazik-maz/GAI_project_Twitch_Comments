@@ -1,3 +1,4 @@
+# model.py
 import torch
 import torch.nn as nn
 
@@ -30,7 +31,7 @@ class CommentDecoder(nn.Module):
 
     def forward(self, input_tokens, hidden, cell):
         # input_tokens: (B, seq_len)
-        embedded = self.embedding(input_tokens)  # (B, seq_len, embed_dim)
+        embedded = self.embedding(input_tokens)
         out, (h, c) = self.lstm(embedded, (hidden, cell))
         logits = self.output_fc(out)  # (B, seq_len, vocab_size)
         return logits, (h, c)
@@ -40,23 +41,19 @@ class MultiModalLSTM(nn.Module):
         super(MultiModalLSTM, self).__init__()
         self.video_encoder = VideoEncoder(video_feature_dim, hidden_dim)
         self.audio_encoder = AudioEncoder(audio_feature_dim, hidden_dim)
-        self.decoder = CommentDecoder(vocab_size, embed_dim=300, hidden_dim=hidden_dim)
+        self.decoder       = CommentDecoder(vocab_size, embed_dim=300, hidden_dim=hidden_dim)
 
-        self.fuse_h = nn.Linear(hidden_dim*2, hidden_dim)
-        self.fuse_c = nn.Linear(hidden_dim*2, hidden_dim)
+        self.fuse_h = nn.Linear(hidden_dim * 2, hidden_dim)
+        self.fuse_c = nn.Linear(hidden_dim * 2, hidden_dim)
 
     def forward(self, video_feats, audio_feats, text_inputs):
-        """
-        video_feats: (B, T, video_feature_dim)
-        audio_feats: (B, A_time, audio_feature_dim)
-        text_inputs: (B, seq_len)
-        """
-        (vh, vc) = self.video_encoder(video_feats)  # (num_layers, B, hidden_dim)
+        (vh, vc) = self.video_encoder(video_feats)
         (ah, ac) = self.audio_encoder(audio_feats)
-        fused_h = torch.cat([vh[-1], ah[-1]], dim=-1)  # (B, hidden_dim*2)
-        fused_c = torch.cat([vc[-1], ac[-1]], dim=-1)  # (B, hidden_dim*2)
 
-        fused_h = self.fuse_h(fused_h).unsqueeze(0)
+        fused_h = torch.cat([vh[-1], ah[-1]], dim=-1)  # (B, hidden_dim*2)
+        fused_c = torch.cat([vc[-1], ac[-1]], dim=-1)
+
+        fused_h = self.fuse_h(fused_h).unsqueeze(0)  # (1, B, hidden_dim)
         fused_c = self.fuse_c(fused_c).unsqueeze(0)
 
         logits, _ = self.decoder(text_inputs, fused_h, fused_c)
