@@ -8,6 +8,9 @@ Our multimodal LSTM model processes video frames and audio spectrograms to gener
 
 ## File Structure
 
+- **download_pipeline.ipynb**  
+  Contains logic for downloading stream audio and chat.
+
 - **data_utils.py**  
   Contains logic for parsing chat files, building vocabulary, and defining the `TwitchCommentDataset`.
 
