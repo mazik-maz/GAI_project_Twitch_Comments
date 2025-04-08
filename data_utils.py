@@ -2,7 +2,6 @@
 import os
 import re
 import torch
-import torchvision.transforms as T
 from torch.utils.data import Dataset
 from collections import Counter
 
@@ -13,7 +12,7 @@ from collections import Counter
 def parse_time_to_seconds(time_string):
     """Convert 'HH:MM:SS' or 'MM:SS' to integer total seconds."""
     parts = time_string.split(':')
-    parts = [int(p) for p in parts]
+    parts = [int(p.split(',')[0]) for p in parts]
     if len(parts) == 3:
         hours, minutes, seconds = parts
     elif len(parts) == 2:
@@ -25,10 +24,10 @@ def parse_time_to_seconds(time_string):
 
 def parse_chat_line(line):
     """
-    Lines look like: [0:00:10] StreamElements: dorozea is now live! ...
+    Lines look like: [0:00:10] StreamElements: ...
     Returns (time_s, speaker, comment).
     """
-    match = re.match(r'^\[(.*?)\]\s*(.*?):\s*(.*)$', line.strip())
+    match = re.match(r'^\[(.*?)\]\s+<(.*?)>\s+(.*)$', line.strip())
     if not match:
         return None
     time_str = match.group(1)
@@ -39,7 +38,7 @@ def parse_chat_line(line):
 
 def load_chat(chat_file):
     """
-    Reads chat file and returns a list of (timestamp_s, speaker, comment).
+    Reads chat file (e.g. .irc) and returns a list of (timestamp_s, speaker, comment).
     """
     entries = []
     with open(chat_file, 'r', encoding='utf-8') as f:
@@ -111,11 +110,23 @@ def tokenize_comment(comment, word2idx, unk_token='<UNK>', eos_token='<EOS>'):
 ########################
 
 class TwitchCommentDataset(Dataset):
+    """
+    Expects that 'preprocess_files(...)' saved 
+    each snippet to: output_dir/out_{idx}.pt 
+    with keys:
+      'video'  -> shape either (dim,) or (T, dim)
+      'audio'  -> shape either (dim,) or (A_time, dim)
+      'text'   -> shape (seq_len,)
+      'time'   -> float (timestamp)
+      'speaker'-> str
+    This dataset will load them all, tokenizing text
+    if not already done (or you can store tokens directly).
+    """
     def __init__(self, cache_dir, chat_file, word2idx):
         """
-        cache_dir: path where .pt files for 'vid_{i}.pt' and 'aud_{i}.pt' are stored
-        chat_file: the .txt with chat lines
-        word2idx: vocab dictionary
+        cache_dir: directory containing 'out_{i}.pt'
+        chat_file: your .irc with chat lines
+        word2idx:  vocab dictionary
         """
         self.cache_dir = cache_dir
         self.chat_entries = load_chat(chat_file)
@@ -125,73 +136,125 @@ class TwitchCommentDataset(Dataset):
         return len(self.chat_entries)
 
     def __getitem__(self, idx):
-        video_path = os.path.join(self.cache_dir, f"vid_{idx}.pt")
-        audio_path = os.path.join(self.cache_dir, f"aud_{idx}.pt")
+        """
+        We'll load 'out_{idx}.pt' which is the file created
+        by the new preprocess pipeline. That file has:
+           { 'video':..., 'audio':..., 'text':..., 'time':..., 'speaker':... }
+        """
+        out_path = os.path.join(self.cache_dir, f"out_{idx}.pt")
+        sample_dict = torch.load(out_path)
 
-        video_frames = torch.load(video_path)  # shape: (Tv, 3, 224, 224)
-        audio_mel = torch.load(audio_path)     # shape: (n_mels, time)
+        video_emb = sample_dict['video']  # e.g. shape (2048,) or (T, 2048)
+        audio_emb = sample_dict['audio']  # e.g. shape (128,) or (A_time,128)
+        text_tokens = sample_dict['text'] # e.g. shape (seq_len,)
 
-        _, _, comment = self.chat_entries[idx]
-        text_tokens = tokenize_comment(comment, self.word2idx)
+        # If you stored raw text instead of tokens, you could re-tokenize here:
+        # text_tokens = tokenize_comment(sample_dict['text'], self.word2idx)
 
         return {
-            'video': video_frames,
-            'audio': audio_mel,
-            'text': torch.LongTensor(text_tokens),
-            'time': self.chat_entries[idx][0],
-            'speaker': self.chat_entries[idx][1]
+            'video': video_emb,
+            'audio': audio_emb,
+            'text': text_tokens,
+            'time': sample_dict['time'],
+            'speaker': sample_dict['speaker']
         }
+
 
 def my_collate_fn(batch):
     """
-    Pad frames (video), pad audio, and pad text.
+    This handles variable-length video embeddings, audio embeddings, and text tokens.
+    We'll pad along the time dimension for video/audio if they're sequences.
+    If they're single embeddings (dim,) we treat them as (1, dim).
     """
-    max_vid_frames = max(x['video'].shape[0] for x in batch)
-    max_aud_time   = max(x['audio'].shape[1] for x in batch)
-    max_text_len   = max(x['text'].shape[0] for x in batch)
+    # Determine the max length of video embeddings (if they're sequences)
+    # or we consider them (1, dim) if shape is (dim,).
+    max_vid_len = 0
+    max_aud_len = 0
+    max_text_len = 0
 
-    videos, audios, texts = [], [], []
-    times, speakers = [], []
+    # We collect the dimension
+    # e.g. if 'video' is shape (T, 2048) or (1, 2048)
+    for item in batch:
+        vid_shape = item['video'].shape
+        if len(vid_shape) == 1:
+            # (dim,) => treat as length=1
+            vid_len = 1
+        else:
+            vid_len = vid_shape[0]
+        if vid_len > max_vid_len:
+            max_vid_len = vid_len
+        
+        aud_shape = item['audio'].shape
+        if len(aud_shape) == 1:
+            aud_len = 1
+        else:
+            aud_len = aud_shape[0]
+        if aud_len > max_aud_len:
+            max_aud_len = aud_len
+        
+        txt_len = item['text'].shape[0]
+        if txt_len > max_text_len:
+            max_text_len = txt_len
+
+    # Prepare storage
+    # We'll assume 'video' has shape (B, max_vid_len, feature_dim)
+    # We'll assume 'audio' has shape (B, max_aud_len, feature_dim)
+    # We'll assume 'text' has shape (B, max_text_len)
+    video_list = []
+    audio_list = []
+    text_list  = []
+    times      = []
+    speakers   = []
 
     for item in batch:
         vid = item['video']
         aud = item['audio']
         txt = item['text']
 
-        # Pad video
-        pad_vid_frames = max_vid_frames - vid.shape[0]
-        if pad_vid_frames > 0:
-            pad_shape = (pad_vid_frames, 3, 224, 224)
+        # Ensure video is 2D: (vid_len, dim)
+        if len(vid.shape) == 1:
+            # (dim,) => reshape to (1, dim)
+            vid = vid.unsqueeze(0)
+        vid_len, vid_dim = vid.shape
+        pad_vid_len = max_vid_len - vid_len
+        if pad_vid_len > 0:
+            pad_shape = (pad_vid_len, vid_dim)
             vid_pad = torch.zeros(pad_shape, dtype=vid.dtype)
             vid = torch.cat([vid, vid_pad], dim=0)
 
-        # Pad audio
-        pad_aud_time = max_aud_time - aud.shape[1]
-        if pad_aud_time > 0:
-            pad_shape = (aud.shape[0], pad_aud_time)
+        # Ensure audio is 2D: (aud_len, dim)
+        if len(aud.shape) == 1:
+            aud = aud.unsqueeze(0)
+        aud_len, aud_dim = aud.shape
+        pad_aud_len = max_aud_len - aud_len
+        if pad_aud_len > 0:
+            pad_shape = (pad_aud_len, aud_dim)
             aud_pad = torch.zeros(pad_shape, dtype=aud.dtype)
-            aud = torch.cat([aud, aud_pad], dim=1)
+            aud = torch.cat([aud, aud_pad], dim=0)
 
         # Pad text
-        pad_text_len = max_text_len - txt.shape[0]
-        if pad_text_len > 0:
-            txt_pad = torch.zeros((pad_text_len,), dtype=txt.dtype)
-            txt = torch.cat([txt, txt_pad], dim=0)
+        txt_len = txt.shape[0]
+        pad_txt_len = max_text_len - txt_len
+        if pad_txt_len > 0:
+            pad_txt = torch.zeros((pad_txt_len,), dtype=txt.dtype)
+            txt = torch.cat([txt, pad_txt], dim=0)
 
-        videos.append(vid.unsqueeze(0))
-        audios.append(aud.unsqueeze(0))
-        texts.append(txt.unsqueeze(0))
+        video_list.append(vid.unsqueeze(0))
+        audio_list.append(aud.unsqueeze(0))
+        text_list.append(txt.unsqueeze(0))
+
         times.append(item['time'])
         speakers.append(item['speaker'])
 
-    videos = torch.cat(videos, dim=0)  # (B, max_vid, 3, 224, 224)
-    audios = torch.cat(audios, dim=0)  # (B, n_mels, max_aud_time)
-    texts  = torch.cat(texts, dim=0)   # (B, max_text_len)
+    # stack
+    videos = torch.cat(video_list, dim=0)  # (B, max_vid_len, vid_dim)
+    audios = torch.cat(audio_list, dim=0)  # (B, max_aud_len, aud_dim)
+    texts  = torch.cat(text_list, dim=0)   # (B, max_text_len)
 
     return {
-        'video': videos,
-        'audio': audios,
-        'text': texts,
+        'video': videos,    # (B, max_vid_len, vid_dim)
+        'audio': audios,    # (B, max_aud_len, aud_dim)
+        'text': texts,      # (B, max_text_len)
         'time': times,
         'speaker': speakers
     }
