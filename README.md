@@ -10,11 +10,6 @@
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
-- [Usage](#usage)
-- [Configuration](#configuration)
-- [Contributing](#contributing)
-- [License](#license)
-- [Contact](#contact)
 
 ---
 
@@ -53,3 +48,11 @@ This project connects to Twitch’s API to capture live chat comments and proces
    ```bash
    git clone https://github.com/mazik-maz/GAI_project_Twitch_Comments.git
    cd GAI_project_Twitch_Comments
+   ```
+
+2. **Set Up a Virtual Environment (Optional but Recommended):**
+
+  ```bash
+  python -m venv venv
+  source venv/bin/activate  # For Windows: venv\Scripts\activate
+  ```
