@@ -1,60 +1,55 @@
-# Twitch Multimodal LSTM
+# GAI Project: Twitch Comments
 
-This repository demonstrates a multimodal LSTM model that processes video (frames) + audio (mel-spectrograms) to generate Twitch chat comments.
+**GAI Project: Twitch Comments** is an application designed to capture, analyze, and visualize real-time chat data from Twitch channels. It enables users to monitor chat activity, perform sentiment analysis, and gain insights from live comments during streaming sessions.
 
-## Model Operation
+---
 
-Our multimodal LSTM model processes video frames and audio spectrograms to generate textual comments. Specifically, we use two specialized LSTM encoders—one for video and one for audio. First, we flatten each batch of video frames (after extracting and resizing them) into a shape suitable for an LSTM input, then pass them through the VideoEncoder. Meanwhile, the raw audio waveform is transformed into a Mel-Spectrogram and fed into the AudioEncoder, which also uses an LSTM to capture temporal features from the spectrogram frames. Each encoder outputs a hidden state representing the learned context of its respective modality. These two hidden states are concatenated and passed through a fusion layer to form the initial hidden and cell states of the CommentDecoder. In turn, the decoder—another LSTM—generates output tokens one step at a time, ultimately producing a chat comment. This decoder can be run with various decoding strategies (greedy or sampling) to yield natural text responses. The presence of <SOS> and <EOS> tokens helps the model learn clear start and end boundaries for each generated comment, improving coherence and stopping behavior.
+## Table of Contents
 
-## File Structure
+- [Overview](#overview)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Contributing](#contributing)
+- [License](#license)
+- [Contact](#contact)
 
-- **download_pipeline.ipynb**  
-  Contains logic for downloading stream audio and chat.
+---
 
-- **data_utils.py**  
-  Contains logic for parsing chat files, building vocabulary, and defining the `TwitchCommentDataset`.
+## Overview
 
-- **preprocess.py**  
-  Extracts frames from MP4 and audio WAV data, produces `.pt` files with precomputed features.
+This project connects to Twitch’s API to capture live chat comments and processes the data to provide useful analytics. By integrating natural language processing and data visualization, it offers a comprehensive view of viewer interactions on Twitch channels, making it valuable for developers, stream moderators, and data enthusiasts looking to understand live audience behavior.
 
-- **model.py**  
-  Defines the LSTM-based architecture for VideoEncoder, AudioEncoder, and CommentDecoder (combined in MultiModalLSTM).
+---
 
-- **train.py**  
-  Defines the training loop (`train_one_epoch`).
+## Features
 
-- **inference.py**  
-  Provides a `generate_comment` function with top-k sampling + temperature-based decoding.
+- **Live Chat Capture:** Connects to Twitch’s API to stream real-time chat messages.
+- **Sentiment Analysis:** Evaluates the sentiment of chat messages using NLP techniques.
+- **Data Visualization:** Generates charts and graphs to highlight chat activity and trends.
+- **Modular Design:** Easily extendable with additional features or analytical modules.
+- **Configurable Options:** Allows customization of polling intervals, API credentials, and analysis parameters.
 
-- **notebook_demo.ipynb**  
-  A Jupyter notebook showing how to use all these modules together. It demonstrates building the vocab, preprocessing data, training or loading a model, and generating comments.
+---
 
-- **my_multimodal_model.pth**  
-  Saved model weights from a trained run. You can load these in the notebook or at inference time.
+## Requirements
 
-## Usage
+- **Python:** Version 3.8 or newer.
+- **Twitch Developer Account:** To obtain necessary API credentials.
+- **Dependencies:** Install required Python packages listed in `requirements.txt`, such as:
+  - `requests`
+  - `pandas`
+  - `matplotlib`
+  - `nltk` (or any alternative NLP library)
 
-1. **Install Requirements**  
-   - `pip install torch torchvision torchaudio decord tqdm`
+---
 
-2. **Precompute Features**  
-   - Adjust the paths in `notebook_demo.ipynb` or call `precompute_features(...)` from your own script.
+## Installation
 
-3. **Train**  
-   - Run `notebook_demo.ipynb`, set `train_model=True`, or call your own training loop in `train.py`.
+1. **Clone the Repository:**
 
-4. **Inference**  
-   - Use `inference.py` to load the model and run `generate_comment`.
-
-## Changes Made
-
-- We added `<SOS>` at the start and `<EOS>` at the end of each comment.  
-- We introduced top-k sampling with temperature in `generate_comment`.  
-- We reorganized code into separate modules for clarity and easier maintenance.
-
-## Links to data
-
-- Model trained for 100 epochs: https://www.kaggle.com/datasets/mazikil/twitch-model-4
-- Precomputed video and audio data: https://www.kaggle.com/datasets/mazikil/precompute-data-gai
-- Data of 28 minutes stream (video, audio, chat): https://www.kaggle.com/datasets/mazikil/dorozeadata
-
+   ```bash
+   git clone https://github.com/mazik-maz/GAI_project_Twitch_Comments.git
+   cd GAI_project_Twitch_Comments
